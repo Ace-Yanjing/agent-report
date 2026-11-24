@@ -147,9 +147,10 @@
   #cvHidden { aspect-ratio: 1 / 1; background: var(--mid); }
   #cvLoss { aspect-ratio: 16 / 9; background: var(--mid); }
 
-  .readout { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0; border-top: 1px solid var(--line-soft); }
+  .readout { display: grid; grid-template-columns: 0.95fr 1.4fr 0.8fr; gap: 0; border-top: 1px solid var(--line-soft); }
   .readout .box { padding: 16px 20px; border-right: 1px solid var(--line-soft); }
   .readout .box:last-child { border-right: 0; }
+  .readout .box.stat { order: 3; }
   .readout h5 { margin: 0 0 12px; font-family: var(--mono); font-size: 10.5px; letter-spacing: .14em; text-transform: uppercase; color: var(--faint); font-weight: 500; }
 
   /* weight matrix */
@@ -167,6 +168,17 @@
   table.pt td:first-child { text-align: left; color: var(--ink); }
   .ok { color: var(--accent); }
   .bad { color: var(--accent-2); }
+
+  /* live network */
+  .net-live { padding: 16px 20px 6px; border-bottom: 1px solid var(--line-soft); }
+  .net-live svg { width: 100%; height: auto; display: block; }
+  .stat-line { display: flex; align-items: baseline; justify-content: space-between; font-family: var(--mono); font-size: 12.5px; padding: 4px 0; }
+  .stat-line span { color: var(--muted); font-size: 11.5px; }
+  .stat-line b { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .thr-row { display: flex; align-items: center; gap: 10px; margin-top: 12px; font-family: var(--mono); font-size: 11px; color: var(--muted); }
+  .thr-row label { white-space: nowrap; letter-spacing: .04em; }
+  .thr-row input { flex: 1; }
+  .thr-row b { color: var(--accent); font-weight: 600; min-width: 34px; text-align: right; }
 
   /* code */
   pre.code { background: var(--bg-soft); border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; overflow-x: auto; font-family: var(--mono); font-size: 12.5px; line-height: 1.72; color: var(--ink-2); margin: 0; }
@@ -211,6 +223,7 @@
     .cell:last-child { border-bottom: 0; }
     .cols, .res-grid { grid-template-columns: 1fr; }
     .metrics { grid-template-columns: 1fr 1fr; }
+    .readout { grid-template-columns: 1fr 1fr; }
   }
   @media (max-width: 680px) {
     section { padding: 68px 0; }
@@ -380,7 +393,7 @@
       <div class="sec-head reveal">
         <div class="eyebrow"><span class="num">03</span><span>Interactive</span><span class="rule"></span></div>
         <h2 class="sec-title">训练过程逐帧回放</h2>
-        <p class="sec-lead">点播放，或者拖动进度条自己找一帧。三张图共用同一组参数，任何时候看到的都是同一时刻的真实状态 —— 数据来自我本地跑出来的 301 帧轨迹，不是动画拟合。</p>
+        <p class="sec-lead">点播放，或者拖动进度条自己找一帧。四个视图共用同一组参数 —— 上面是 9 个参数此刻长什么样，下面是决策边界、隐藏空间和损失曲线。数据来自我本地跑出来的 301 帧真实轨迹，不是动画拟合。</p>
       </div>
 
       <div class="lab reveal" id="labBox">
@@ -394,10 +407,23 @@
           <button class="speed" id="speedBtn">1×</button>
         </div>
 
+        <div class="net-live">
+          <div class="cell-head">
+            <h4>参数状态</h4>
+            <span>线越粗 |w| 越大 · <span style="color:var(--accent)">蓝=正</span> / <span style="color:var(--accent-2)">红=负</span> · 节点标偏置</span>
+          </div>
+          <svg id="netLive" viewBox="0 0 720 200" role="img" aria-label="动态参数网络图"></svg>
+        </div>
+
         <div class="lab-grid">
           <div class="cell">
             <div class="cell-head"><h4>决策边界</h4><span>p(ŷ=1) 在输入平面</span></div>
             <canvas id="cvBoundary"></canvas>
+            <div class="thr-row">
+              <label>阈值</label>
+              <input type="range" class="scrub" id="thr" min="0.05" max="0.95" value="0.50" step="0.01" />
+              <b id="thrVal">0.50</b>
+            </div>
           </div>
           <div class="cell" style="display: flex; flex-direction: column; gap: 14px;">
             <div>
@@ -417,6 +443,13 @@
             <div class="wgrid" id="wgrid"></div>
             <div class="vec" id="bhvec"></div>
           </div>
+          <div class="box stat">
+            <h5>训练指标</h5>
+            <div class="stat-line"><span>Loss</span><b id="stLoss">—</b></div>
+            <div class="stat-line"><span>Accuracy</span><b id="stAcc">—</b></div>
+            <div class="stat-line"><span>max |w|</span><b id="stW">—</b></div>
+            <div class="stat-line"><span>预测正确</span><b id="stHit">—</b></div>
+          </div>
           <div class="box">
             <h5>输出层 v · b<sub>o</sub> 与 4 个样本</h5>
             <div class="vec" id="vvec" style="margin-top: 0; margin-bottom: 10px;"></div>
@@ -426,7 +459,8 @@
       </div>
 
       <p style="margin: 16px 0 0; font-size: 13px; color: var(--faint); font-family: var(--mono);">
-        注：颜色越蓝表示模型认为 ŷ=0 的概率越高，越红表示 ŷ=1。空心圆是 y=0 的样本，实心点是 y=1。
+        注：颜色越蓝表示模型认为 ŷ=0 的概率越高，越红表示 ŷ=1；空心圆是 y=0 的样本，实心点是 y=1。
+        决策边界图下方的阈值滑块拖动的是判定线位置（深色那条），概率场本身不变。
       </p>
     </div>
   </section>
@@ -664,6 +698,151 @@ optimizer = torch.optim.Adam(parameters, lr=<span class="s">0.03</span>)
 
   var off = document.createElement("canvas");
 
+  /* ---------------- live network (权重连线) ---------------- */
+  var THR = 0.5;
+  var NS = "http://www.w3.org/2000/svg";
+  var netRef = null;
+
+  function svgEl(tag, attrs) {
+    var e = document.createElementNS(NS, tag);
+    for (var k in attrs) if (attrs.hasOwnProperty(k)) e.setAttribute(k, attrs[k]);
+    return e;
+  }
+
+  function buildNet() {
+    var svg = document.getElementById("netLive");
+    if (!svg) return;
+    svg.innerHTML = "";
+    svg.setAttribute("viewBox", "0 0 720 190");
+
+    var IN = [[104, 72], [104, 132]];
+    var HN = [[364, 64], [364, 140]];
+    var ON = [622, 102];
+
+    var gL = svgEl("g", {});
+    svg.appendChild(gL);
+
+    var lines = [];
+    for (var i = 0; i < 2; i++) {
+      for (var j = 0; j < 2; j++) {
+        var ln = svgEl("line", {
+          x1: IN[i][0], y1: IN[i][1], x2: HN[j][0], y2: HN[j][1],
+          "stroke-linecap": "round"
+        });
+        gL.appendChild(ln);
+        lines.push({ el: ln, k: "W", i: i, j: j });
+      }
+    }
+    for (var j2 = 0; j2 < 2; j2++) {
+      var ln2 = svgEl("line", {
+        x1: HN[j2][0], y1: HN[j2][1], x2: ON[0] - 40, y2: ON[1],
+        "stroke-linecap": "round"
+      });
+      gL.appendChild(ln2);
+      lines.push({ el: ln2, k: "v", j: j2 });
+    }
+
+    // 输入节点
+    var inLbl = ["x₁", "x₂"];
+    for (var a = 0; a < 2; a++) {
+      svg.appendChild(svgEl("circle", {
+        cx: IN[a][0], cy: IN[a][1], r: 24, fill: "var(--card)",
+        stroke: "var(--accent)", "stroke-width": 1.6
+      }));
+      var t = svgEl("text", {
+        x: IN[a][0], y: IN[a][1] + 5, "text-anchor": "middle",
+        "font-family": "ui-monospace,monospace", "font-size": 14, fill: "var(--ink)"
+      });
+      t.textContent = inLbl[a];
+      svg.appendChild(t);
+    }
+
+    // 隐藏节点：节点名 + 偏置数值（放在节点内部）
+    var bhTxt = [];
+    for (var b = 0; b < 2; b++) {
+      svg.appendChild(svgEl("circle", {
+        cx: HN[b][0], cy: HN[b][1], r: 34, fill: "var(--accent-soft)",
+        stroke: "var(--accent)", "stroke-width": 1.6
+      }));
+      var th = svgEl("text", {
+        x: HN[b][0], y: HN[b][1] - 4, "text-anchor": "middle",
+        "font-family": "ui-monospace,monospace", "font-size": 13, fill: "var(--ink)"
+      });
+      th.textContent = "h" + (b + 1);
+      svg.appendChild(th);
+      var tv = svgEl("text", {
+        x: HN[b][0], y: HN[b][1] + 14, "text-anchor": "middle",
+        "font-family": "ui-monospace,monospace", "font-size": 11, fill: "var(--muted)"
+      });
+      svg.appendChild(tv);
+      bhTxt.push(tv);
+    }
+
+    // 输出节点：ŷ + 输出偏置
+    svg.appendChild(svgEl("circle", {
+      cx: ON[0], cy: ON[1], r: 36, fill: "var(--accent-2-soft)",
+      stroke: "var(--accent-2)", "stroke-width": 1.6
+    }));
+    var ty = svgEl("text", {
+      x: ON[0], y: ON[1] - 3, "text-anchor": "middle",
+      "font-family": "ui-monospace,monospace", "font-size": 15, fill: "var(--ink)"
+    });
+    ty.textContent = "ŷ";
+    svg.appendChild(ty);
+    var tbo = svgEl("text", {
+      x: ON[0], y: ON[1] + 15, "text-anchor": "middle",
+      "font-family": "ui-monospace,monospace", "font-size": 11, fill: "var(--muted)"
+    });
+    svg.appendChild(tbo);
+
+    // 层标签
+    [["输入层", 104], ["隐藏层 · 权重 W / 偏置 b", 364], ["输出层 · v / b_o", 622]].forEach(function (p) {
+      var t2 = svgEl("text", {
+        x: p[1], y: 181, "text-anchor": "middle",
+        "font-family": "ui-monospace,monospace", "font-size": 10, fill: "var(--faint)"
+      });
+      t2.textContent = p[0];
+      svg.appendChild(t2);
+    });
+
+    netRef = { lines: lines, bh: bhTxt, bo: tbo };
+  }
+
+  function updateNet(i0) {
+    if (!netRef) return;
+    var p = T[i0];
+    var acc = css("--accent"), acc2 = css("--accent-2");
+    netRef.lines.forEach(function (L) {
+      var w = L.k === "W" ? p.W[L.i][L.j] : p.v[L.j];
+      var mag = Math.abs(w);
+      L.el.setAttribute("stroke-width", (1.2 + Math.min(mag, 7) * 1.25).toFixed(2));
+      L.el.setAttribute("stroke", w >= 0 ? acc : acc2);
+      L.el.setAttribute("opacity", (0.20 + 0.80 * Math.min(1, mag / 6)).toFixed(3));
+    });
+    netRef.bh[0].textContent = fmt(p.bh[0]);
+    netRef.bh[1].textContent = fmt(p.bh[1]);
+    netRef.bo.textContent = fmt(p.bo);
+  }
+
+  function updateStats(i0) {
+    var p = T[i0];
+    var elL = document.getElementById("stLoss");
+    if (!elL) return;
+    elL.textContent = p.loss.toFixed(4);
+
+    var hit = 0;
+    for (var s = 0; s < 4; s++) {
+      if ((p.p[s] >= 0.5 ? 1 : 0) === D.data.Y[s]) hit++;
+    }
+    document.getElementById("stAcc").textContent = (hit / 4 * 100).toFixed(0) + "%";
+    document.getElementById("stHit").textContent = hit + " / 4";
+
+    var mw = 0;
+    for (var i = 0; i < 2; i++) for (var j = 0; j < 2; j++) mw = Math.max(mw, Math.abs(p.W[i][j]));
+    mw = Math.max(mw, Math.abs(p.v[0]), Math.abs(p.v[1]));
+    document.getElementById("stW").textContent = mw.toFixed(3);
+  }
+
   function drawBoundary() {
     var c = fit(cvB); if (!c) return;
     var i0 = Math.round(idx);
@@ -691,8 +870,8 @@ optimizer = torch.optim.Adam(parameters, lr=<span class="s">0.03</span>)
         var t2, base;
         if (prob < 0.5) { t2 = prob / 0.5; base = mix(mid, acc, t2 * 0.92); }
         else { t2 = (prob - 0.5) / 0.5; base = mix(mid, acc2, t2 * 0.92); }
-        // p = 0.5 的等值线（决策边界）加深，让形状看得见
-        if (Math.abs(prob - 0.5) < 0.02) base = mix(base, ink, 0.62);
+        // p = 阈值 的等值线（决策边界）加深，让形状看得见
+        if (Math.abs(prob - THR) < 0.02) base = mix(base, ink, 0.62);
         var o = (py * N + px) * 4;
         img.data[o] = base[0]; img.data[o+1] = base[1]; img.data[o+2] = base[2]; img.data[o+3] = 255;
       }
@@ -959,6 +1138,8 @@ optimizer = torch.optim.Adam(parameters, lr=<span class="s">0.03</span>)
 
   function redrawAll() {
     drawBoundary(); drawHidden(); drawLoss(); updatePanels();
+    var i0 = Math.round(idx);
+    updateNet(i0); updateStats(i0);
   }
 
   /* ---------------- playback ---------------- */
@@ -1005,6 +1186,16 @@ optimizer = torch.optim.Adam(parameters, lr=<span class="s">0.03</span>)
     lastDrawn = idx;
     redrawAll();
   });
+
+  var thrEl = document.getElementById("thr");
+  var thrVal = document.getElementById("thrVal");
+  if (thrEl) {
+    thrEl.addEventListener("input", function () {
+      THR = parseFloat(thrEl.value) || 0.5;
+      thrVal.textContent = THR.toFixed(2);
+      drawBoundary();
+    });
+  }
   speedBtn.addEventListener("click", function () {
     speed = speed === 1 ? 0.5 : speed === 0.5 ? 2 : speed === 2 ? 4 : 1;
     speedBtn.textContent = speed + "×";
@@ -1014,6 +1205,7 @@ optimizer = torch.optim.Adam(parameters, lr=<span class="s">0.03</span>)
   buildWGrid();
   buildVec(document.getElementById("bhvec"), ["b_0", "b_1"]);
   buildVec(document.getElementById("vvec"), ["v1", "v2", "bo"]);
+  buildNet();
 
   var ro;
   window.addEventListener("resize", function () {
