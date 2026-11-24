@@ -378,6 +378,18 @@
   .next ol li { margin-bottom: 6px; }
   .next ol li:last-child { margin-bottom: 0; }
 
+  /* coursework entry */
+  .hw-card {
+    display: block; margin-top: 18px; padding: 20px 22px;
+    border: 1px solid var(--line); border-radius: 14px; background: var(--card);
+    transition: transform .3s cubic-bezier(.2,.8,.2,1), box-shadow .3s, border-color .3s;
+  }
+  .hw-card:hover { transform: translateY(-3px); box-shadow: var(--shadow-hover); border-color: transparent; }
+  .hw-tag { font-family: var(--mono); font-size: 10.5px; letter-spacing: .14em; color: var(--accent); display: block; margin-bottom: 9px; }
+  .hw-card strong { display: block; font-size: 15px; font-weight: 620; margin-bottom: 6px; letter-spacing: -.01em; line-height: 1.5; }
+  .hw-desc { display: block; font-size: 12.5px; color: var(--muted); line-height: 1.75; }
+  .hw-go { display: inline-block; margin-top: 13px; font-family: var(--mono); font-size: 11.5px; color: var(--accent); }
+
   /* ---------- footer ---------- */
   footer {
     border-top: 1px solid var(--line-soft); padding: 44px 0 52px;
@@ -438,6 +450,7 @@
       <a href="#flow">工作流</a>
       <a href="#playbook">使用心得</a>
       <a href="#about">关于我</a>
+      <a href="./homework2.html">作业二</a>
     </nav>
     <button class="theme-btn" id="themeBtn" aria-label="切换主题" title="切换主题">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
@@ -713,6 +726,13 @@
             <li><span class="k">Level</span><span class="v">起步阶段，仍在摸索</span></li>
             <li><span class="k">Since</span><span class="v">2026</span></li>
           </ul>
+
+          <a class="hw-card" href="./homework2.html">
+            <span class="hw-tag">COURSEWORK 02</span>
+            <strong>MLP 学习参数的实现与可视化</strong>
+            <span class="hw-desc">2-2-1 网络学 XOR · 手写反向传播 · 301 帧训练过程回放</span>
+            <span class="hw-go">查看作业 →</span>
+          </a>
         </div>
       </div>
     </div>
@@ -823,7 +843,7 @@
   if (intensity) iio.observe(intensity);
 
   /* ---------- scrollspy ---------- */
-  var links = Array.prototype.slice.call(document.querySelectorAll(".nav-links a"));
+  var links = Array.prototype.slice.call(document.querySelectorAll('.nav-links a[href^="#"]'));
   var sections = links.map(function (a) { return document.querySelector(a.getAttribute("href")); });
   var sio = new IntersectionObserver(function (entries) {
     entries.forEach(function (en) {

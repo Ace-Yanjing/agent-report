@@ -1,0 +1,1047 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>第二次作业 · MLP 学习参数的实现与可视化｜严靖</title>
+<meta name="description" content="用 2-2-1 MLP 学习 XOR：手写前向与反向传播，把 9 个参数在 300 轮训练中如何被学出来，全部可视化。" />
+<style>
+  :root {
+    --bg: #faf9f6;
+    --bg-soft: #f2f1ec;
+    --card: #ffffff;
+    --ink: #16181d;
+    --ink-2: #3d4149;
+    --muted: #73777f;
+    --faint: #a2a6ad;
+    --line: rgba(20, 22, 29, 0.11);
+    --line-soft: rgba(20, 22, 29, 0.06);
+    --accent: #2f4fd8;
+    --accent-soft: rgba(47, 79, 216, 0.10);
+    --accent-2: #bf4526;
+    --accent-2-soft: rgba(191, 69, 38, 0.10);
+    --shadow: 0 1px 2px rgba(20,22,29,.04), 0 12px 32px -18px rgba(20,22,29,.35);
+    --mid: #f0efea;
+    --sans: -apple-system, BlinkMacSystemFont, "SF Pro SC", "PingFang SC", "HarmonyOS Sans SC", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Menlo", "Cascadia Code", monospace;
+    --serif: "Songti SC", "Source Han Serif SC", "Noto Serif SC", Georgia, serif;
+  }
+  :root[data-theme="dark"] {
+    --bg: #0d0e10;
+    --bg-soft: #131519;
+    --card: #14161a;
+    --ink: #eae9e4;
+    --ink-2: #c3c2bc;
+    --muted: #8f9298;
+    --faint: #6b6e75;
+    --line: rgba(255, 255, 255, 0.12);
+    --line-soft: rgba(255, 255, 255, 0.06);
+    --accent: #8ea3ff;
+    --accent-soft: rgba(142, 163, 255, 0.12);
+    --accent-2: #e5836a;
+    --accent-2-soft: rgba(229, 131, 106, 0.12);
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 12px 32px -18px rgba(0,0,0,.8);
+    --mid: #1a1c20;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: var(--sans); font-size: 16px; line-height: 1.75;
+    -webkit-font-smoothing: antialiased; overflow-x: hidden;
+  }
+  ::selection { background: var(--accent); color: #fff; }
+  a { color: inherit; text-decoration: none; }
+  .mono { font-family: var(--mono); }
+
+  #progress { position: fixed; top: 0; left: 0; height: 2px; width: 0%; background: var(--accent); z-index: 90; }
+  header.nav {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 80;
+    background: var(--bg);
+    background: color-mix(in srgb, var(--bg) 84%, transparent);
+    backdrop-filter: saturate(180%) blur(16px);
+    -webkit-backdrop-filter: saturate(180%) blur(16px);
+    border-bottom: 1px solid transparent; transition: border-color .3s;
+  }
+  header.nav.scrolled { border-bottom-color: var(--line-soft); }
+  .nav-inner { max-width: 1120px; margin: 0 auto; padding: 0 28px; height: 58px; display: flex; align-items: center; gap: 24px; }
+  .brand { display: flex; align-items: center; gap: 10px; font-family: var(--mono); font-size: 12.5px; letter-spacing: .04em; white-space: nowrap; }
+  .brand .dot { width: 20px; height: 20px; border-radius: 50%; background: var(--ink); color: var(--bg); display: grid; place-items: center; font-size: 11px; font-weight: 700; font-family: var(--sans); }
+  .nav-links { display: flex; gap: 24px; margin-left: auto; }
+  .nav-links a { font-size: 13.5px; color: var(--muted); position: relative; padding: 4px 0; transition: color .2s; }
+  .nav-links a::after { content: ""; position: absolute; left: 0; bottom: 0; height: 1px; width: 0; background: var(--accent); transition: width .28s cubic-bezier(.4,0,.2,1); }
+  .nav-links a:hover, .nav-links a.active { color: var(--ink); }
+  .nav-links a:hover::after, .nav-links a.active::after { width: 100%; }
+  .theme-btn { width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--line); background: transparent; color: var(--ink); cursor: pointer; display: grid; place-items: center; transition: background .2s, transform .3s; flex: none; }
+  .theme-btn:hover { background: var(--bg-soft); transform: rotate(18deg); }
+  .theme-btn svg { width: 15px; height: 15px; }
+
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 0 28px; }
+  section { padding: 96px 0; position: relative; }
+  .sec-head { margin-bottom: 42px; }
+  .eyebrow { display: flex; align-items: baseline; gap: 14px; font-family: var(--mono); font-size: 12px; letter-spacing: .12em; color: var(--faint); text-transform: uppercase; margin-bottom: 14px; }
+  .eyebrow .num { color: var(--accent); font-weight: 600; }
+  .eyebrow .rule { flex: 1; height: 1px; background: var(--line); max-width: 120px; align-self: center; }
+  h2.sec-title { font-size: clamp(1.6rem, 3.4vw, 2.35rem); line-height: 1.25; letter-spacing: -0.02em; margin: 0 0 14px; font-weight: 650; }
+  p.sec-lead { margin: 0; color: var(--muted); font-size: 15.5px; max-width: 680px; line-height: 1.8; }
+
+  /* hero */
+  .hero { padding: 138px 0 84px; position: relative; border-bottom: 1px solid var(--line-soft); overflow: hidden; }
+  .hero::before {
+    content: ""; position: absolute; inset: 0; z-index: 0;
+    background-image: linear-gradient(var(--line-soft) 1px, transparent 1px), linear-gradient(90deg, var(--line-soft) 1px, transparent 1px);
+    background-size: 56px 56px;
+    mask-image: radial-gradient(ellipse 78% 68% at 50% 34%, #000 12%, transparent 76%);
+    -webkit-mask-image: radial-gradient(ellipse 78% 68% at 50% 34%, #000 12%, transparent 76%);
+  }
+  .hero .wrap { position: relative; z-index: 1; }
+  .hero-top { display: flex; align-items: center; justify-content: space-between; gap: 18px; flex-wrap: wrap; margin-bottom: 30px; }
+  .tagline { font-family: var(--mono); font-size: 11.5px; letter-spacing: .2em; color: var(--faint); text-transform: uppercase; }
+  .back-link { font-family: var(--mono); font-size: 12px; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 5px 14px; background: var(--card); transition: color .2s, border-color .2s, transform .2s; }
+  .back-link:hover { color: var(--ink); border-color: var(--ink); transform: translateX(-2px); }
+  h1.title { font-size: clamp(2.1rem, 5.6vw, 4rem); line-height: 1.1; letter-spacing: -0.035em; font-weight: 700; margin: 0 0 24px; }
+  h1.title .hl { background-image: linear-gradient(var(--accent-2-soft), var(--accent-2-soft)); background-repeat: no-repeat; background-size: 100% 34%; background-position: 0 88%; }
+  .hero-lead { font-size: clamp(1rem, 1.8vw, 1.12rem); color: var(--ink-2); max-width: 660px; line-height: 1.85; margin: 0 0 36px; }
+  .hero-lead strong { font-weight: 600; color: var(--ink); }
+  .metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+  .metric { background: var(--card); padding: 20px 20px 18px; }
+  .metric .k { font-family: var(--mono); font-size: 10.5px; letter-spacing: .14em; color: var(--faint); text-transform: uppercase; margin-bottom: 9px; }
+  .metric .v { font-size: 1.75rem; font-weight: 650; letter-spacing: -0.03em; line-height: 1; font-variant-numeric: tabular-nums; display: flex; align-items: baseline; gap: 5px; }
+  .metric .v .u { font-size: 12px; font-weight: 400; color: var(--muted); }
+
+  /* generic blocks */
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+  .panel { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 26px 28px; }
+  .panel h3 { font-size: 1.06rem; margin: 0 0 12px; font-weight: 620; letter-spacing: -.01em; }
+  .panel p { margin: 0 0 10px; color: var(--muted); font-size: 14.5px; line-height: 1.8; }
+  .panel p:last-child { margin-bottom: 0; }
+  .panel .tag { font-family: var(--mono); font-size: 11px; color: var(--accent); letter-spacing: .1em; display: block; margin-bottom: 10px; }
+
+  /* network svg */
+  .net-wrap { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 10px 6px 0; overflow: hidden; }
+  .net-wrap svg { width: 100%; height: auto; display: block; }
+
+  /* experiment */
+  .lab { background: var(--card); border: 1px solid var(--line); border-radius: 16px; overflow: hidden; }
+  .lab-bar { display: flex; align-items: center; gap: 16px; padding: 14px 20px; border-bottom: 1px solid var(--line-soft); flex-wrap: wrap; background: var(--bg-soft); }
+  .play-btn { display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--line); background: var(--card); color: var(--ink); border-radius: 8px; padding: 7px 15px; font-size: 13.5px; cursor: pointer; transition: border-color .2s, transform .15s; font-family: var(--sans); }
+  .play-btn:hover { border-color: var(--ink); }
+  .play-btn:active { transform: scale(.97); }
+  .play-btn svg { width: 13px; height: 13px; }
+  .lab-bar .epoch { font-family: var(--mono); font-size: 12.5px; color: var(--muted); white-space: nowrap; }
+  .lab-bar .epoch b { color: var(--ink); font-weight: 600; font-size: 14px; }
+  .scrub { flex: 1; min-width: 160px; -webkit-appearance: none; appearance: none; height: 4px; border-radius: 999px; background: var(--line); outline: none; cursor: pointer; }
+  .scrub::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%; background: var(--accent); border: 2px solid var(--card); box-shadow: 0 0 0 1px var(--accent); cursor: grab; }
+  .scrub::-moz-range-thumb { width: 12px; height: 12px; border-radius: 50%; background: var(--accent); border: 2px solid var(--card); border: none; }
+  .speed { font-family: var(--mono); font-size: 11.5px; color: var(--muted); border: 1px solid var(--line); background: var(--card); border-radius: 6px; padding: 5px 10px; cursor: pointer; }
+  .speed:hover { color: var(--ink); border-color: var(--ink); }
+
+  .lab-grid { display: grid; grid-template-columns: 1.05fr 1fr; gap: 0; }
+  .cell { padding: 20px; border-right: 1px solid var(--line-soft); }
+  .cell:last-child { border-right: 0; }
+  .cell-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
+  .cell-head h4 { margin: 0; font-size: 13px; font-weight: 600; letter-spacing: .01em; }
+  .cell-head span { font-family: var(--mono); font-size: 10.5px; color: var(--faint); letter-spacing: .06em; }
+  canvas { display: block; width: 100%; border-radius: 10px; }
+  #cvBoundary { aspect-ratio: 1 / 1; background: var(--mid); }
+  #cvHidden { aspect-ratio: 1 / 1; background: var(--mid); }
+  #cvLoss { aspect-ratio: 16 / 9; background: var(--mid); }
+
+  .readout { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0; border-top: 1px solid var(--line-soft); }
+  .readout .box { padding: 16px 20px; border-right: 1px solid var(--line-soft); }
+  .readout .box:last-child { border-right: 0; }
+  .readout h5 { margin: 0 0 12px; font-family: var(--mono); font-size: 10.5px; letter-spacing: .14em; text-transform: uppercase; color: var(--faint); font-weight: 500; }
+
+  /* weight matrix */
+  .wgrid { display: grid; grid-template-columns: 46px 1fr 1fr; gap: 5px; align-items: center; font-family: var(--mono); font-size: 12px; }
+  .wgrid .hdr { color: var(--faint); font-size: 10.5px; text-align: center; letter-spacing: .08em; }
+  .wcell { border-radius: 6px; padding: 9px 0; text-align: center; font-weight: 600; font-variant-numeric: tabular-nums; transition: background .12s, color .12s; }
+  .vec { display: flex; gap: 5px; margin-top: 8px; }
+  .vec .wcell { flex: 1; }
+
+  /* prediction table */
+  table.pt { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 12px; }
+  table.pt th { text-align: right; font-weight: 500; color: var(--faint); font-size: 10.5px; letter-spacing: .06em; padding: 0 0 8px; text-transform: uppercase; }
+  table.pt th:first-child { text-align: left; }
+  table.pt td { text-align: right; padding: 5px 0; color: var(--ink-2); font-variant-numeric: tabular-nums; border-top: 1px solid var(--line-soft); }
+  table.pt td:first-child { text-align: left; color: var(--ink); }
+  .ok { color: var(--accent); }
+  .bad { color: var(--accent-2); }
+
+  /* code */
+  pre.code { background: var(--bg-soft); border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; overflow-x: auto; font-family: var(--mono); font-size: 12.5px; line-height: 1.72; color: var(--ink-2); margin: 0; }
+  pre.code .c { color: var(--faint); }
+  pre.code .k { color: var(--accent); }
+  pre.code .s { color: var(--accent-2); }
+  details { border: 1px solid var(--line); border-radius: 12px; padding: 0; background: var(--card); overflow: hidden; }
+  details + details { margin-top: 12px; }
+  details summary { cursor: pointer; padding: 14px 20px; font-size: 13.5px; font-weight: 550; list-style: none; display: flex; align-items: center; gap: 10px; }
+  details summary::-webkit-details-marker { display: none; }
+  details summary::before { content: "+"; font-family: var(--mono); color: var(--accent); font-size: 15px; width: 12px; }
+  details[open] summary::before { content: "−"; }
+  details[open] summary { border-bottom: 1px solid var(--line-soft); }
+  details .inner { padding: 18px 20px 22px; }
+  .dl { display: inline-flex; align-items: center; gap: 8px; font-family: var(--mono); font-size: 12.5px; color: var(--accent); border: 1px solid var(--accent); background: var(--accent-soft); border-radius: 8px; padding: 7px 14px; margin-top: 14px; transition: transform .2s, background .2s; }
+  .dl:hover { transform: translateY(-2px); }
+
+  /* result */
+  .res-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 18px; }
+  .kv { display: flex; align-items: baseline; justify-content: space-between; gap: 14px; padding: 9px 0; border-bottom: 1px dashed var(--line-soft); font-size: 13.5px; }
+  .kv:last-child { border-bottom: 0; }
+  .kv .k { color: var(--muted); font-family: var(--mono); font-size: 11.5px; letter-spacing: .06em; }
+  .kv .v { font-family: var(--mono); font-variant-numeric: tabular-nums; color: var(--ink); font-size: 13px; }
+
+  blockquote.pull { margin: 48px 0 0; padding: 0 0 0 28px; border-left: 2px solid var(--accent); font-family: var(--serif); font-size: clamp(1.15rem, 2.4vw, 1.5rem); line-height: 1.65; color: var(--ink); max-width: 760px; }
+  blockquote.pull .src { display: block; margin-top: 14px; font-family: var(--mono); font-size: 11.5px; letter-spacing: .08em; color: var(--faint); text-transform: uppercase; }
+
+  footer { border-top: 1px solid var(--line-soft); padding: 40px 0 48px; }
+  .foot-inner { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; flex-wrap: wrap; }
+  .foot-left { font-size: 13px; color: var(--muted); line-height: 1.9; }
+  .foot-left .big { color: var(--ink); font-size: 14px; display: block; margin-bottom: 4px; }
+  .top-btn { font-family: var(--mono); font-size: 11.5px; letter-spacing: .08em; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 7px 15px; transition: color .2s, border-color .2s, transform .2s; }
+  .top-btn:hover { color: var(--ink); border-color: var(--ink); transform: translateY(-2px); }
+
+  .reveal { opacity: 0; transform: translateY(18px); transition: opacity .8s cubic-bezier(.2,.8,.2,1), transform .8s cubic-bezier(.2,.8,.2,1); }
+  .reveal.in { opacity: 1; transform: none; }
+  @media (prefers-reduced-motion: reduce) { .reveal { opacity: 1 !important; transform: none !important; } html { scroll-behavior: auto; } }
+
+  @media (max-width: 940px) {
+    .lab-grid { grid-template-columns: 1fr; }
+    .cell { border-right: 0; border-bottom: 1px solid var(--line-soft); }
+    .cell:last-child { border-bottom: 0; }
+    .cols, .res-grid { grid-template-columns: 1fr; }
+    .metrics { grid-template-columns: 1fr 1fr; }
+  }
+  @media (max-width: 680px) {
+    section { padding: 68px 0; }
+    .hero { padding: 112px 0 64px; }
+    .wrap, .nav-inner { padding: 0 18px; }
+    .nav-links { display: none; }
+    .readout { grid-template-columns: 1fr; }
+    .readout .box { border-right: 0; border-bottom: 1px solid var(--line-soft); }
+  }
+</style>
+</head>
+<body>
+<div id="progress"></div>
+
+<header class="nav" id="nav">
+  <div class="nav-inner">
+    <a href="./index.html" class="brand"><span class="dot">严</span><span>严靖 × AGENT</span></a>
+    <nav class="nav-links">
+      <a href="#task">任务</a>
+      <a href="#net">网络</a>
+      <a href="#lab">实验台</a>
+      <a href="#result">结果</a>
+      <a href="#code">代码</a>
+    </nav>
+    <button class="theme-btn" id="themeBtn" aria-label="切换主题">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+        <circle cx="12" cy="12" r="4.2"></circle>
+        <path d="M12 2.2v2.4M12 19.4v2.4M2.2 12h2.4M19.4 12h2.4M4.9 4.9l1.7 1.7M17.4 17.4l1.7 1.7M19.1 4.9l-1.7 1.7M6.6 17.4l-1.7 1.7"></path>
+      </svg>
+    </button>
+  </div>
+</header>
+
+<main id="top">
+  <section class="hero">
+    <div class="wrap">
+      <div class="hero-top">
+        <span class="tagline">Homework 02 · 第二篇 第 15 节</span>
+        <a href="./index.html" class="back-link">← 返回报告首页</a>
+      </div>
+      <h1 class="title">MLP <span class="hl">学习参数</span><br />的实现与可视化</h1>
+      <p class="hero-lead">
+        课件第 15 节用 2-2-1 网络解 XOR，给出了 TensorFlow 和 PyTorch 两版代码。
+        我用<strong>纯 Python 标准库</strong>把这套前向、反向传播和 Adam 重写了一遍，
+        再把 9 个参数在 300 轮里如何被"学"出来，逐帧画出来。
+      </p>
+      <div class="metrics">
+        <div class="metric"><div class="k">结构</div><div class="v">2-2-1</div></div>
+        <div class="metric"><div class="k">可学习参数</div><div class="v">9<span class="u">个</span></div></div>
+        <div class="metric"><div class="k">训练轮数</div><div class="v">300<span class="u">epoch</span></div></div>
+        <div class="metric"><div class="k">Loss</div><div class="v">0.028<span class="u">↓</span></div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 01 任务 -->
+  <section id="task">
+    <div class="wrap">
+      <div class="sec-head reveal">
+        <div class="eyebrow"><span class="num">01</span><span>Task</span><span class="rule"></span></div>
+        <h2 class="sec-title">作业要做什么</h2>
+        <p class="sec-lead">课件第 15 节共 4 页（63–66 / 171），从生物神经元一路讲到「多层网络怎样学习参数」。作业落点在最后一页。</p>
+      </div>
+
+      <div class="cols">
+        <div class="panel reveal">
+          <span class="tag">课件脉络</span>
+          <h3>四页讲了四件事</h3>
+          <p><b>63 页</b>　麦卡洛克—皮茨模型：把生物神经元抽象成一个阈值单元，改变阈值就能实现「与」「或」。</p>
+          <p><b>64 页</b>　感知器：单层只能画一条直线。XOR 的同类点在对角，直线永远分不开。</p>
+          <p><b>65 页</b>　加一个隐藏层，输入被映射到 (h₁, h₂) 空间后就能用一条线分开。</p>
+          <p><b>66 页</b>　这套参数不是手算的，靠反向传播 + 梯度下降从样本里学出来。</p>
+        </div>
+        <div class="panel reveal">
+          <span class="tag">我的任务</span>
+          <h3>把 66 页那张图变成能看的东西</h3>
+          <p>课件停在「参数更新」这一步，但参数到底怎么动、动成什么形状，图上看不到。所以我做三件事：</p>
+          <p><b>① 自己实现</b>　不用框架，用 <span class="mono">math</span> 手写 sigmoid、交叉熵、链式法则反向传播和 Adam。</p>
+          <p><b>② 逐步记录</b>　每轮存下全部 9 个参数、4 个样本的隐藏层激活和预测概率。</p>
+          <p><b>③ 逐帧回放</b>　左侧决策边界、右侧隐藏空间、下方损失曲线，三条线同步走。</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 02 网络 -->
+  <section id="net" style="background: var(--bg-soft); border-top: 1px solid var(--line-soft); border-bottom: 1px solid var(--line-soft);">
+    <div class="wrap">
+      <div class="sec-head reveal">
+        <div class="eyebrow"><span class="num">02</span><span>Model</span><span class="rule"></span></div>
+        <h2 class="sec-title">2-2-1 结构与 9 个参数</h2>
+        <p class="sec-lead">2 个输入 → 2 个 sigmoid 隐藏单元 → 1 个输出。全部参数就是 4 个权重、2 个隐藏偏置、2 个输出权重、1 个输出偏置。</p>
+      </div>
+
+      <div class="net-wrap reveal">
+        <svg viewBox="0 0 780 300" role="img" aria-label="2-2-1 多层感知机结构图">
+          <defs>
+            <marker id="arw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor" opacity="0.55"></path>
+            </marker>
+          </defs>
+          <g stroke="currentColor" fill="none" opacity="0.30" stroke-width="1.3">
+            <line x1="150" y1="110" x2="330" y2="95" marker-end="url(#arw)"></line>
+            <line x1="150" y1="110" x2="330" y2="205" marker-end="url(#arw)"></line>
+            <line x1="150" y1="200" x2="330" y2="95" marker-end="url(#arw)"></line>
+            <line x1="150" y1="200" x2="330" y2="205" marker-end="url(#arw)"></line>
+            <line x1="392" y1="95" x2="560" y2="150" marker-end="url(#arw)"></line>
+            <line x1="392" y1="205" x2="560" y2="150" marker-end="url(#arw)"></line>
+          </g>
+          <!-- input nodes -->
+          <g>
+            <circle cx="126" cy="110" r="25" fill="var(--card)" stroke="var(--accent)" stroke-width="1.8"></circle>
+            <text x="126" y="116" text-anchor="middle" font-family="ui-monospace,monospace" font-size="15" fill="var(--ink)">x₁</text>
+            <circle cx="126" cy="200" r="25" fill="var(--card)" stroke="var(--accent)" stroke-width="1.8"></circle>
+            <text x="126" y="206" text-anchor="middle" font-family="ui-monospace,monospace" font-size="15" fill="var(--ink)">x₂</text>
+          </g>
+          <!-- hidden -->
+          <g>
+            <circle cx="361" cy="95" r="30" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.8"></circle>
+            <text x="361" y="101" text-anchor="middle" font-family="ui-monospace,monospace" font-size="15" fill="var(--ink)">h₁</text>
+            <circle cx="361" cy="205" r="30" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.8"></circle>
+            <text x="361" y="211" text-anchor="middle" font-family="ui-monospace,monospace" font-size="15" fill="var(--ink)">h₂</text>
+          </g>
+          <!-- output -->
+          <g>
+            <circle cx="590" cy="150" r="32" fill="var(--accent-2-soft)" stroke="var(--accent-2)" stroke-width="1.8"></circle>
+            <text x="590" y="157" text-anchor="middle" font-family="ui-monospace,monospace" font-size="16" fill="var(--ink)">ŷ</text>
+          </g>
+          <!-- labels -->
+          <g font-family="ui-monospace,monospace" font-size="11" fill="var(--muted)">
+            <text x="126" y="255" text-anchor="middle">输入层</text>
+            <text x="361" y="262" text-anchor="middle">隐藏层 · sigmoid</text>
+            <text x="590" y="255" text-anchor="middle">输出层 · sigmoid</text>
+            <text x="240" y="60" text-anchor="middle" fill="var(--accent)">W (2×2)</text>
+            <text x="240" y="258" text-anchor="middle" fill="var(--faint)">4 个权重 + 2 个偏置</text>
+            <text x="477" y="110" text-anchor="middle" fill="var(--accent)">v (2×1)</text>
+            <text x="477" y="200" text-anchor="middle" fill="var(--faint)">2 个权重 + 1 个偏置</text>
+          </g>
+        </svg>
+      </div>
+
+      <div class="cols" style="margin-top: 18px;">
+        <div class="panel reveal">
+          <span class="tag">前向计算</span>
+          <p style="font-family: var(--mono); font-size: 13.5px; line-height: 2.1; color: var(--ink-2);">
+            h<sub>j</sub> = σ( x₁·W₁ⱼ + x₂·W₂ⱼ + b<sub>j</sub> )　j = 1,2<br />
+            z = h₁·v₁ + h₂·v₂ + b<sub>o</sub><br />
+            ŷ = σ(z) = 1 / (1 + e<sup>−z</sup>)
+          </p>
+          <p style="margin-top: 14px;">σ 是 sigmoid，把任意实数压到 (0,1)。输出层把它当概率，0.5 为分类阈值。</p>
+        </div>
+        <div class="panel reveal">
+          <span class="tag">参数清单</span>
+          <div class="kv"><span class="k">W (2×2)</span><span class="v">4 个</span></div>
+          <div class="kv"><span class="k">b<sub>h</sub> (2)</span><span class="v">2 个</span></div>
+          <div class="kv"><span class="k">v (2×1)</span><span class="v">2 个</span></div>
+          <div class="kv"><span class="k">b<sub>o</sub> (1)</span><span class="v">1 个</span></div>
+          <div class="kv"><span class="k">合计</span><span class="v" style="color: var(--accent); font-weight: 600;">9 个标量</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 03 实验台 -->
+  <section id="lab">
+    <div class="wrap">
+      <div class="sec-head reveal">
+        <div class="eyebrow"><span class="num">03</span><span>Interactive</span><span class="rule"></span></div>
+        <h2 class="sec-title">训练过程逐帧回放</h2>
+        <p class="sec-lead">点播放，或者拖动进度条自己找一帧。三张图共用同一组参数，任何时候看到的都是同一时刻的真实状态 —— 数据来自我本地跑出来的 301 帧轨迹，不是动画拟合。</p>
+      </div>
+
+      <div class="lab reveal" id="labBox">
+        <div class="lab-bar">
+          <button class="play-btn" id="playBtn">
+            <svg id="playIcon" viewBox="0 0 12 12" fill="currentColor"><path d="M2 1 L11 6 L2 11 Z"></path></svg>
+            <span id="playText">播放</span>
+          </button>
+          <span class="epoch">epoch <b id="epochNum">0</b> / 300</span>
+          <input type="range" class="scrub" id="scrub" min="0" max="300" value="0" step="1" />
+          <button class="speed" id="speedBtn">1×</button>
+        </div>
+
+        <div class="lab-grid">
+          <div class="cell">
+            <div class="cell-head"><h4>决策边界</h4><span>p(ŷ=1) 在输入平面</span></div>
+            <canvas id="cvBoundary"></canvas>
+          </div>
+          <div class="cell" style="display: flex; flex-direction: column; gap: 14px;">
+            <div>
+              <div class="cell-head"><h4>隐藏层表示</h4><span>(h₁, h₂) 空间</span></div>
+              <canvas id="cvHidden"></canvas>
+            </div>
+            <div>
+              <div class="cell-head"><h4>损失曲线</h4><span>BCE · 全批量</span></div>
+              <canvas id="cvLoss"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <div class="readout">
+          <div class="box">
+            <h5>参数 W · b<sub>h</sub></h5>
+            <div class="wgrid" id="wgrid"></div>
+            <div class="vec" id="bhvec"></div>
+          </div>
+          <div class="box">
+            <h5>输出层 v · b<sub>o</sub> 与 4 个样本</h5>
+            <div class="vec" id="vvec" style="margin-top: 0; margin-bottom: 10px;"></div>
+            <table class="pt" id="ptable"></table>
+          </div>
+        </div>
+      </div>
+
+      <p style="margin: 16px 0 0; font-size: 13px; color: var(--faint); font-family: var(--mono);">
+        注：颜色越蓝表示模型认为 ŷ=0 的概率越高，越红表示 ŷ=1。空心圆是 y=0 的样本，实心点是 y=1。
+      </p>
+    </div>
+  </section>
+
+  <!-- 04 结果 -->
+  <section id="result" style="background: var(--bg-soft); border-top: 1px solid var(--line-soft); border-bottom: 1px solid var(--line-soft);">
+    <div class="wrap">
+      <div class="sec-head reveal">
+        <div class="eyebrow"><span class="num">04</span><span>Result</span><span class="rule"></span></div>
+        <h2 class="sec-title">训练之后发生了什么</h2>
+        <p class="sec-lead">300 轮后，四个样本的预测概率都远离 0.5。更有意思的是隐藏层把输入"折叠"成了什么样子。</p>
+      </div>
+
+      <div class="res-grid">
+        <div class="panel reveal">
+          <span class="tag">最终参数</span>
+          <table class="pt" style="font-size: 12.5px;">
+            <tr><th>参数</th><th>训练前</th><th>训练后</th></tr>
+            <tr><td>W₁₁</td><td>+2.000</td><td id="fw1">+6.137</td></tr>
+            <tr><td>W₁₂</td><td>−2.000</td><td id="fw2">−6.014</td></tr>
+            <tr><td>W₂₁</td><td>−2.000</td><td id="fw3">−6.014</td></tr>
+            <tr><td>W₂₂</td><td>+2.000</td><td id="fw4">+6.137</td></tr>
+            <tr><td>b<sub>h1</sub></td><td>−1.000</td><td id="fb1">−3.473</td></tr>
+            <tr><td>b<sub>h2</sub></td><td>−1.000</td><td id="fb2">−3.473</td></tr>
+            <tr><td>v₁</td><td>+3.000</td><td id="fv1">+8.192</td></tr>
+            <tr><td>v₂</td><td>+3.000</td><td id="fv2">+8.192</td></tr>
+            <tr><td>b<sub>o</sub></td><td>−2.500</td><td id="fbo">−4.014</td></tr>
+          </table>
+        </div>
+
+        <div class="panel reveal">
+          <span class="tag">四个样本</span>
+          <table class="pt" style="font-size: 12.5px;">
+            <tr><th>输入</th><th>目标</th><th>h₁</th><th>h₂</th><th>p</th><th>预测</th></tr>
+            <tr><td>(0, 0)</td><td>0</td><td>0.030</td><td>0.030</td><td>0.029</td><td class="ok">0 ✓</td></tr>
+            <tr><td>(0, 1)</td><td>1</td><td>0.000</td><td>0.935</td><td>0.975</td><td class="ok">1 ✓</td></tr>
+            <tr><td>(1, 0)</td><td>1</td><td>0.935</td><td>0.000</td><td>0.975</td><td class="ok">1 ✓</td></tr>
+            <tr><td>(1, 1)</td><td>0</td><td>0.034</td><td>0.034</td><td>0.031</td><td class="ok">0 ✓</td></tr>
+          </table>
+          <p style="margin-top: 16px; font-size: 13.5px; line-height: 1.8;">
+            注意 <span class="mono">(0,0)</span> 和 <span class="mono">(1,1)</span> 在隐藏层几乎重合到同一点 —— 这正是课件 65 页说的「00、11 → (0,0)」。网络没有在原始空间里画曲线，而是<strong>把两个同类的点叠到了一起</strong>，于是输出层一条直线就够了。
+          </p>
+        </div>
+      </div>
+
+      <div class="panel reveal" style="margin-top: 18px;">
+        <span class="tag">正确性检验</span>
+        <h3>手写反向传播靠不靠得住</h3>
+        <p style="margin-bottom: 16px;">光看 loss 下降不能证明梯度推导是对的（错了也可能碰巧下降）。所以我在初始参数处做了一次中心差分数值梯度检验：把每个参数单独加/减 1e-6，用 <span class="mono">(L⁺ − L⁻) / 2ε</span> 估计真实梯度，再和反向传播算出的解析梯度逐项比。</p>
+        <table class="pt" style="font-size: 12.5px;">
+          <tr><th>参数</th><th>解析梯度</th><th>数值梯度</th><th>相对误差</th></tr>
+          <tr><td>W₁₁</td><td>−0.03674393</td><td>−0.03674393</td><td>6.8e−11</td></tr>
+          <tr><td>W₁₂</td><td>+0.02470594</td><td>+0.02470594</td><td>3.0e−10</td></tr>
+          <tr><td>b<sub>h1</sub></td><td>−0.01203800</td><td>−0.01203800</td><td>4.1e−10</td></tr>
+          <tr><td>v₁</td><td>−0.06605153</td><td>−0.06605153</td><td>5.2e−10</td></tr>
+          <tr><td>b<sub>o</sub></td><td>−0.12459038</td><td>−0.12459038</td><td>5.9e−11</td></tr>
+        </table>
+        <p style="margin-top: 14px; font-size: 13.5px;">9 个分量全部吻合，<strong>最大相对误差 5.2×10⁻¹⁰</strong>，处于双精度浮点的舍入误差量级。说明链式法则那几行没写错。</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 05 代码 -->
+  <section id="code">
+    <div class="wrap">
+      <div class="sec-head reveal">
+        <div class="eyebrow"><span class="num">05</span><span>Code</span><span class="rule"></span></div>
+        <h2 class="sec-title">两种实现</h2>
+        <p class="sec-lead">上面所有数据来自下面第二份代码。第一份是课件给的框架版本，我把它当作对照基准。</p>
+      </div>
+
+      <details class="reveal">
+        <summary>课件版：PyTorch（autograd + Adam）</summary>
+        <div class="inner">
+<pre class="code"><span class="c"># 课件 66/171 页原文，2-2-1 MLP 训练 XOR</span>
+<span class="k">import</span> torch
+<span class="k">import</span> torch.nn.functional <span class="k">as</span> F
+torch.set_default_dtype(torch.float64)
+
+x = torch.tensor([[0.,0.],[0.,1.],[1.,0.],[1.,1.]])
+target = torch.tensor([[0.],[1.],[1.],[0.]])
+
+W = torch.nn.Parameter(torch.tensor([[2.,-2.],[-2.,2.]]))
+b_hidden = torch.nn.Parameter(torch.tensor([-1.,-1.]))
+v = torch.nn.Parameter(torch.tensor([[3.],[3.]]))
+b_output = torch.nn.Parameter(torch.tensor([-2.5]))
+parameters = [W, b_hidden, v, b_output]
+optimizer = torch.optim.Adam(parameters, lr=<span class="s">0.03</span>)
+
+<span class="k">for</span> epoch <span class="k">in</span> range(1, 301):
+    optimizer.zero_grad(set_to_none=<span class="k">True</span>)
+    hidden = torch.sigmoid(x @ W + b_hidden)
+    logits = hidden @ v + b_output
+    loss = F.binary_cross_entropy_with_logits(logits, target)
+    loss.backward()
+    optimizer.step()</pre>
+        </div>
+      </details>
+
+      <details class="reveal" open>
+        <summary>我的实现：纯 Python，手写反向传播</summary>
+        <div class="inner">
+<pre class="code"><span class="c"># 全批量 BCE-with-logits 的损失与梯度</span>
+<span class="k">def</span> batch_loss_and_grad(p):
+    grad = {...}; loss = <span class="s">0.0</span>
+    <span class="k">for</span> x, y <span class="k">in</span> zip(X, Y):
+        h, z, prob = forward(p, x)
+
+        <span class="c"># ③ 损失：softplus(z) - y*z 等价于 BCE(logits)</span>
+        loss += max(z, <span class="s">0.0</span>) + math.log1p(math.exp(-abs(z))) - y * z
+
+        <span class="c"># ④ 反向传播：BCE + sigmoid 的经典结果 dL/dz = σ(z) - y</span>
+        dz = (prob - y) / N
+
+        <span class="k">for</span> j <span class="k">in</span> range(2):
+            grad[<span class="s">"v"</span>][j] += h[j] * dz          <span class="c"># 输出层权重</span>
+        grad[<span class="s">"bo"</span>] += dz
+
+        <span class="k">for</span> j <span class="k">in</span> range(2):
+            dh   = dz * p[<span class="s">"v"</span>][j]                <span class="c"># 传回隐藏层</span>
+            dpre = dh * h[j] * (<span class="s">1.0</span> - h[j])      <span class="c"># sigmoid 导数 h(1-h)</span>
+            grad[<span class="s">"W"</span>][<span class="s">0</span>][j] += x[<span class="s">0</span>] * dpre
+            grad[<span class="s">"W"</span>][<span class="s">1</span>][j] += x[<span class="s">1</span>] * dpre
+            grad[<span class="s">"bh"</span>][j]   += dpre
+
+    <span class="k">return</span> loss / N, grad</pre>
+          <a class="dl" href="./assets/mlp_train.py" download>↓ 下载完整脚本 mlp_train.py</a>
+          <a class="dl" href="./assets/mlp_trace.json" download>↓ 下载训练轨迹 mlp_trace.json</a>
+        </div>
+      </details>
+
+      <div class="panel reveal" style="margin-top: 18px;">
+        <span class="tag">两点实现细节</span>
+        <h3>顺手记下的坑</h3>
+        <p><b>① 损失写法</b>　直接算 <span class="mono">-log(σ(z))</span> 在 z 很负时会溢出成 <span class="mono">log(0)</span>。用 <span class="mono">softplus(z) − y·z</span> 展开，即 <span class="mono">max(z,0) + log1p(exp(−|z|))</span>，数值稳定，和框架里的 <span class="mono">with_logits</span> 是同一个东西。</p>
+        <p><b>② Adam 的偏差修正</b>　前几步 m、v 都从 0 起步，直接除会严重偏小。必须除以 <span class="mono">1−β₁ᵗ</span> 和 <span class="mono">1−β₂ᵗ</span>，否则第一步的更新量会小得离谱。</p>
+      </div>
+
+      <blockquote class="pull reveal">
+        参数不是被"设置"成答案的，是被梯度的方向一步步推过去的。看懂那张决策边界怎么从一条直线弯成十字，比最终 100% 的准确率有意思得多。
+        <span class="src">— 做完这次作业最直接的感受</span>
+      </blockquote>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap foot-inner">
+    <div class="foot-left">
+      <span class="big">© 2026 严靖 · 第二次作业</span>
+      人工智能概论 · 第二篇 第 15 节「人工神经元网络」 · 2-2-1 MLP 学习 XOR
+    </div>
+    <div class="foot-right" style="display: flex; gap: 14px; align-items: center; flex-wrap: wrap;">
+      <a href="./index.html" class="top-btn">← 报告首页</a>
+      <a href="#top" class="top-btn">返回顶部 ↑</a>
+    </div>
+  </div>
+</footer>
+
+<script src="./assets/mlp_data.js"></script>
+<script>
+(function () {
+  "use strict";
+
+  /* ---------------- theme ---------------- */
+  var root = document.documentElement;
+  var tbtn = document.getElementById("themeBtn");
+  var stored = null;
+  try { stored = localStorage.getItem("yj-report-theme"); } catch (e) {}
+  if (stored) root.setAttribute("data-theme", stored);
+  else if (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches) root.setAttribute("data-theme", "dark");
+  tbtn.addEventListener("click", function () {
+    var next = root.getAttribute("data-theme") === "dark" ? "light" : "dark";
+    root.setAttribute("data-theme", next);
+    try { localStorage.setItem("yj-report-theme", next); } catch (e) {}
+    redrawAll();
+  });
+
+  /* ---------------- chrome ---------------- */
+  var nav = document.getElementById("nav");
+  var bar = document.getElementById("progress");
+  function onScroll() {
+    var y = window.scrollY || window.pageYOffset;
+    nav.classList.toggle("scrolled", y > 8);
+    var h = document.documentElement.scrollHeight - window.innerHeight;
+    bar.style.width = (h > 0 ? Math.min(100, (y / h) * 100) : 0) + "%";
+  }
+  window.addEventListener("scroll", onScroll, { passive: true });
+  onScroll();
+
+  var revealEls = document.querySelectorAll(".reveal");
+  var io = new IntersectionObserver(function (es) {
+    es.forEach(function (en) {
+      if (!en.isIntersecting) return;
+      en.target.classList.add("in");
+      io.unobserve(en.target);
+    });
+  }, { threshold: 0.12, rootMargin: "0px 0px -6% 0px" });
+  revealEls.forEach(function (el) { io.observe(el); });
+
+  /* ---------------- data ---------------- */
+  var D = window.MLP_TRACE;
+  if (!D) { console.error("mlp_data.js 未加载"); return; }
+  var T = D.trace;
+  var LAST = T.length - 1;
+
+  var idx = 0, playing = false, speed = 1, raf = null, lastTs = 0;
+  var FPS = 42; // 每秒推进的帧数（1× 速度）
+
+  function css(name) { return getComputedStyle(root).getPropertyValue(name).trim(); }
+
+  function hex2rgb(h) {
+    h = h.replace("#", "");
+    if (h.length === 3) h = h[0]+h[0]+h[1]+h[1]+h[2]+h[2];
+    return [parseInt(h.slice(0,2),16), parseInt(h.slice(2,4),16), parseInt(h.slice(4,6),16)];
+  }
+  function sig(z) { return 1 / (1 + Math.exp(-z)); }
+  function lerp(a, b, t) { return a + (b - a) * t; }
+
+  /* ---------------- canvases ---------------- */
+  var cvB = document.getElementById("cvBoundary");
+  var cvH = document.getElementById("cvHidden");
+  var cvL = document.getElementById("cvLoss");
+
+  function fit(cv) {
+    var r = cv.getBoundingClientRect();
+    if (r.width === 0) return null;
+    var dpr = Math.min(window.devicePixelRatio || 1, 2);
+    var cw = Math.round(r.width * dpr), ch = Math.round(r.height * dpr);
+    if (cv.width !== cw || cv.height !== ch) { cv.width = cw; cv.height = ch; }
+    var ctx = cv.getContext("2d");
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    return { ctx: ctx, w: r.width, h: r.height };
+  }
+
+  var off = document.createElement("canvas");
+
+  function drawBoundary() {
+    var c = fit(cvB); if (!c) return;
+    var i0 = Math.round(idx);
+    var ctx = c.ctx, w = c.w, h = c.h, p = T[i0];
+
+    var acc = hex2rgb(css("--accent"));
+    var acc2 = hex2rgb(css("--accent-2"));
+    var mid = hex2rgb(css("--mid"));
+    var ink = hex2rgb(css("--ink"));
+
+    var N = 96;
+    off.width = N; off.height = N;
+    var octx = off.getContext("2d");
+    var img = octx.createImageData(N, N);
+
+    for (var py = 0; py < N; py++) {
+      var x2 = 1 - py / (N - 1);
+      for (var px = 0; px < N; px++) {
+        var x1 = px / (N - 1);
+        var h1 = sig(x1 * p.W[0][0] + x2 * p.W[1][0] + p.bh[0]);
+        var h2 = sig(x1 * p.W[0][1] + x2 * p.W[1][1] + p.bh[1]);
+        var prob = sig(h1 * p.v[0] + h2 * p.v[1] + p.bo);
+
+        // prob<0.5 -> accent(蓝), 0.5 -> mid, >0.5 -> accent2(红)
+        var t2, base;
+        if (prob < 0.5) { t2 = prob / 0.5; base = mix(mid, acc, t2 * 0.92); }
+        else { t2 = (prob - 0.5) / 0.5; base = mix(mid, acc2, t2 * 0.92); }
+        // p = 0.5 的等值线（决策边界）加深，让形状看得见
+        if (Math.abs(prob - 0.5) < 0.02) base = mix(base, ink, 0.62);
+        var o = (py * N + px) * 4;
+        img.data[o] = base[0]; img.data[o+1] = base[1]; img.data[o+2] = base[2]; img.data[o+3] = 255;
+      }
+    }
+    octx.putImageData(img, 0, 0);
+    ctx.imageSmoothingEnabled = true;
+    ctx.clearRect(0, 0, w, h);
+    ctx.drawImage(off, 0, 0, w, h);
+
+    // 网格
+    ctx.strokeStyle = css("--line");
+    ctx.lineWidth = 0.8;
+    ctx.strokeRect(0.5, 0.5, w - 1, h - 1);
+
+    // 四个样本点
+    var X = D.data.X, Y = D.data.Y;
+    for (var s = 0; s < 4; s++) {
+      var sx = X[s][0] * w, sy = h - X[s][1] * h;
+      var isOne = Y[s] === 1;
+      ctx.beginPath();
+      ctx.arc(sx, sy, 6.5, 0, Math.PI * 2);
+      ctx.fillStyle = isOne ? css("--accent-2") : css("--card");
+      ctx.fill();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = isOne ? css("--accent-2") : css("--accent");
+      ctx.stroke();
+      if (!isOne) {
+        ctx.beginPath();
+        ctx.arc(sx, sy, 2.4, 0, Math.PI * 2);
+        ctx.fillStyle = css("--accent");
+        ctx.fill();
+      }
+    }
+
+    // 轴标
+    ctx.fillStyle = css("--muted");
+    ctx.font = "10px ui-monospace, monospace";
+    ctx.fillText("x₁ →", w - 34, h - 8);
+    ctx.save(); ctx.translate(11, 24); ctx.rotate(-Math.PI / 2);
+    ctx.fillText("x₂ →", 0, 0); ctx.restore();
+  }
+
+  function mix(a, b, t) {
+    return [
+      Math.round(lerp(a[0], b[0], t)),
+      Math.round(lerp(a[1], b[1], t)),
+      Math.round(lerp(a[2], b[2], t))
+    ];
+  }
+
+  function drawHidden() {
+    var c = fit(cvH); if (!c) return;
+    var i0 = Math.round(idx);
+    var ctx = c.ctx, w = c.w, h = c.h, p = T[i0];
+    var pad = 34;
+    var plotW = w - pad - 14, plotH = h - pad - 16;
+    var ox = pad, oy = 16;
+
+    ctx.clearRect(0, 0, w, h);
+    // 背景网格
+    ctx.strokeStyle = css("--line");
+    ctx.lineWidth = 0.6;
+    for (var g = 0; g <= 4; g++) {
+      var gx = ox + plotW * g / 4, gy = oy + plotH * g / 4;
+      ctx.beginPath(); ctx.moveTo(gx, oy); ctx.lineTo(gx, oy + plotH); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(ox, gy); ctx.lineTo(ox + plotW, gy); ctx.stroke();
+    }
+
+    // 分类线: v1*h1 + v2*h2 + bo = 0  ->  h2 = -(v1*h1+bo)/v2
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(ox, oy, plotW, plotH);
+    ctx.clip();
+    ctx.strokeStyle = css("--ink");
+    ctx.globalAlpha = 0.5;
+    ctx.lineWidth = 1.4;
+    ctx.setLineDash([5, 4]);
+    ctx.beginPath();
+    if (Math.abs(p.v[1]) > 1e-9) {
+      var h1a = 0, h1b = 1;
+      var h2a = -(p.v[0] * h1a + p.bo) / p.v[1];
+      var h2b = -(p.v[0] * h1b + p.bo) / p.v[1];
+      ctx.moveTo(ox + h1a * plotW, oy + plotH - h2a * plotH);
+      ctx.lineTo(ox + h1b * plotW, oy + plotH - h2b * plotH);
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    // 4 个隐藏表示点
+    var Y = D.data.Y;
+    for (var s = 0; s < 4; s++) {
+      var hh = p.h[s];
+      var hx = ox + Math.max(0, Math.min(1, hh[0])) * plotW;
+      var hy = oy + plotH - Math.max(0, Math.min(1, hh[1])) * plotH;
+      var isOne = Y[s] === 1;
+      ctx.beginPath();
+      ctx.arc(hx, hy, 6.5, 0, Math.PI * 2);
+      ctx.fillStyle = isOne ? css("--accent-2") : css("--card");
+      ctx.fill();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = isOne ? css("--accent-2") : css("--accent");
+      ctx.stroke();
+      if (!isOne) {
+        ctx.beginPath(); ctx.arc(hx, hy, 2.4, 0, Math.PI * 2);
+        ctx.fillStyle = css("--accent"); ctx.fill();
+      }
+      // 标注输入
+      ctx.fillStyle = css("--faint");
+      ctx.font = "9.5px ui-monospace, monospace";
+      var lbl = "(" + D.data.X[s][0] + "," + D.data.X[s][1] + ")";
+      ctx.fillText(lbl, hx + 9, hy - 7);
+    }
+
+    // 轴标
+    ctx.fillStyle = css("--muted");
+    ctx.font = "10px ui-monospace, monospace";
+    ctx.fillText("h₁ →", ox + plotW - 26, oy + plotH + 14);
+    ctx.save(); ctx.translate(12, oy + 30); ctx.rotate(-Math.PI / 2);
+    ctx.fillText("h₂ →", 0, 0); ctx.restore();
+    ctx.fillStyle = css("--faint");
+    ctx.fillText("0", ox - 6, oy + plotH + 12);
+    ctx.fillText("1", ox + plotW - 4, oy + plotH + 12);
+  }
+
+  function drawLoss() {
+    var c = fit(cvL); if (!c) return;
+    var i0 = Math.round(idx);
+    var ctx = c.ctx, w = c.w, h = c.h;
+    var padL = 34, padB = 20, padT = 10, padR = 10;
+    var pw = w - padL - padR, ph = h - padT - padB;
+    var maxL = 0.62;
+
+    ctx.clearRect(0, 0, w, h);
+    ctx.strokeStyle = css("--line");
+    ctx.lineWidth = 0.6;
+    for (var g2 = 0; g2 <= 3; g2++) {
+      var gy2 = padT + ph * g2 / 3;
+      ctx.beginPath(); ctx.moveTo(padL, gy2); ctx.lineTo(padL + pw, gy2); ctx.stroke();
+    }
+
+    // 全曲线（淡）
+    ctx.beginPath();
+    for (var i3 = 0; i3 <= LAST; i3++) {
+      var px3 = padL + pw * (i3 / LAST);
+      var py3 = padT + ph * (1 - Math.min(1, T[i3].loss / maxL));
+      i3 === 0 ? ctx.moveTo(px3, py3) : ctx.lineTo(px3, py3);
+    }
+    ctx.strokeStyle = css("--faint");
+    ctx.globalAlpha = 0.35;
+    ctx.lineWidth = 1.2;
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+
+    // 已走过部分
+    ctx.beginPath();
+    for (var i4 = 0; i4 <= idx; i4++) {
+      var px4 = padL + pw * (i4 / LAST);
+      var py4 = padT + ph * (1 - Math.min(1, T[i4].loss / maxL));
+      i4 === 0 ? ctx.moveTo(px4, py4) : ctx.lineTo(px4, py4);
+    }
+    ctx.strokeStyle = css("--accent");
+    ctx.lineWidth = 1.8;
+    ctx.stroke();
+
+    // 当前点
+    var cx3 = padL + pw * (idx / LAST);
+    var cy3 = padT + ph * (1 - Math.min(1, T[i0].loss / maxL));
+    ctx.beginPath(); ctx.arc(cx3, cy3, 3.6, 0, Math.PI * 2);
+    ctx.fillStyle = css("--accent"); ctx.fill();
+    ctx.strokeStyle = css("--card"); ctx.lineWidth = 1.6; ctx.stroke();
+
+    // 轴
+    ctx.fillStyle = css("--muted");
+    ctx.font = "9.5px ui-monospace, monospace";
+    ctx.fillText(maxL.toFixed(2), 2, padT + 8);
+    ctx.fillText("0", 2, padT + ph + 3);
+    ctx.fillText("300", padL + pw - 16, h - 5);
+    ctx.fillText("loss " + T[i0].loss.toFixed(4), padL + 4, padT + 10);
+  }
+
+  /* ---------------- panels ---------------- */
+  function cellColor(v) {
+    // 正值 -> 赭红，负值 -> 靛蓝，0 -> 透明
+    var a = Math.min(1, Math.abs(v) / 3.2);
+    return v >= 0
+      ? "rgba(191,69,38," + (a * 0.18).toFixed(3) + ")"
+      : "rgba(47,79,216," + (a * 0.18).toFixed(3) + ")";
+  }
+
+  function buildWGrid() {
+    var g = document.getElementById("wgrid");
+    g.innerHTML = "";
+    var empty = document.createElement("div"); g.appendChild(empty);
+    ["→ h₁", "→ h₂"].forEach(function (t) {
+      var d = document.createElement("div"); d.className = "hdr"; d.textContent = t; g.appendChild(d);
+    });
+    [["x₁", 0], ["x₂", 1]].forEach(function (row) {
+      var lab = document.createElement("div");
+      lab.className = "hdr"; lab.style.textAlign = "left"; lab.textContent = row[0] + " ↓";
+      g.appendChild(lab);
+      for (var j = 0; j < 2; j++) {
+        var cell = document.createElement("div");
+        cell.className = "wcell";
+        cell.id = "w_" + row[1] + "_" + j;
+        g.appendChild(cell);
+      }
+    });
+    var sp = document.createElement("div"); g.appendChild(sp);
+  }
+
+  function buildVec(el, ids) {
+    el.innerHTML = "";
+    ids.forEach(function (id) {
+      var d = document.createElement("div");
+      d.className = "wcell"; d.id = id;
+      el.appendChild(d);
+    });
+  }
+
+  function fmt(v) { return (v >= 0 ? "+" : "−") + Math.abs(v).toFixed(3); }
+
+  function updatePanels() {
+    var i0 = Math.round(idx);
+    var p = T[i0];
+    for (var i = 0; i < 2; i++) {
+      for (var j = 0; j < 2; j++) {
+        var el = document.getElementById("w_" + i + "_" + j);
+        var v = p.W[i][j];
+        el.textContent = fmt(v);
+        el.style.background = cellColor(v);
+        el.style.color = Math.abs(v) > 2.2 ? "var(--ink)" : "var(--ink-2)";
+      }
+      var be = document.getElementById("b_" + i);
+      be.textContent = fmt(p.bh[i]);
+      be.style.background = cellColor(p.bh[i]);
+      be.style.color = "var(--ink-2)";
+    }
+
+    document.getElementById("v1").textContent = fmt(p.v[0]);
+    document.getElementById("v1").style.background = cellColor(p.v[0]);
+    document.getElementById("v2").textContent = fmt(p.v[1]);
+    document.getElementById("v2").style.background = cellColor(p.v[1]);
+    document.getElementById("bo").textContent = fmt(p.bo);
+    document.getElementById("bo").style.background = cellColor(p.bo);
+
+    // 预测表
+    var X = D.data.X, Y = D.data.Y;
+    var rows = "";
+    for (var s = 0; s < 4; s++) {
+      var pr = p.p[s];
+      var pred = pr >= 0.5 ? 1 : 0;
+      var good = pred === Y[s];
+      rows += "<tr><td>(" + X[s][0] + ", " + X[s][1] + ")</td><td>" + Y[s] +
+        "</td><td>" + p.h[s][0].toFixed(3) + "</td><td>" + p.h[s][1].toFixed(3) +
+        "</td><td>" + pr.toFixed(3) + "</td><td class='" + (good ? "ok" : "bad") + "'>" +
+        pred + (good ? " ✓" : " ✗") + "</td></tr>";
+    }
+    document.getElementById("ptable").innerHTML =
+      "<tr><th>输入</th><th>目标</th><th>h₁</th><th>h₂</th><th>p</th><th>预测</th></tr>" + rows;
+
+    document.getElementById("epochNum").textContent = i0;
+    document.getElementById("scrub").value = i0;
+  }
+
+  function redrawAll() {
+    drawBoundary(); drawHidden(); drawLoss(); updatePanels();
+  }
+
+  /* ---------------- playback ---------------- */
+  var scrub = document.getElementById("scrub");
+  var playBtn = document.getElementById("playBtn");
+  var playText = document.getElementById("playText");
+  var playIcon = document.getElementById("playIcon");
+  var speedBtn = document.getElementById("speedBtn");
+
+  var PLAY_ICON = '<path d="M2 1 L11 6 L2 11 Z"></path>';
+  var PAUSE_ICON = '<path d="M2 1 H5 V11 H2 Z M7 1 H10 V11 H7 Z"></path>';
+
+  function setPlaying(v) {
+    playing = v;
+    playText.textContent = v ? "暂停" : "播放";
+    playIcon.innerHTML = v ? PAUSE_ICON : PLAY_ICON;
+    if (v) {
+      if (idx >= LAST) { idx = 0; }
+      lastTs = 0;
+      raf = requestAnimationFrame(tick);
+    } else if (raf) {
+      cancelAnimationFrame(raf); raf = null;
+    }
+  }
+
+  function tick(ts) {
+    if (!playing) return;
+    if (!lastTs) lastTs = ts;
+    var dt = (ts - lastTs) / 1000;
+    lastTs = ts;
+    idx += dt * FPS * speed;
+    if (idx >= LAST) { idx = LAST; setPlaying(false); }
+    var i = Math.round(idx);
+    if (i !== lastDrawn) { lastDrawn = i; redrawAll(); }
+    if (playing) raf = requestAnimationFrame(tick);
+  }
+
+  var lastDrawn = -1;
+
+  playBtn.addEventListener("click", function () { setPlaying(!playing); });
+  scrub.addEventListener("input", function () {
+    setPlaying(false);
+    idx = parseInt(scrub.value, 10);
+    lastDrawn = idx;
+    redrawAll();
+  });
+  speedBtn.addEventListener("click", function () {
+    speed = speed === 1 ? 0.5 : speed === 0.5 ? 2 : speed === 2 ? 4 : 1;
+    speedBtn.textContent = speed + "×";
+  });
+
+  /* ---------------- init ---------------- */
+  buildWGrid();
+  buildVec(document.getElementById("bhvec"), ["b_0", "b_1"]);
+  buildVec(document.getElementById("vvec"), ["v1", "v2", "bo"]);
+
+  var ro;
+  window.addEventListener("resize", function () {
+    clearTimeout(ro);
+    ro = setTimeout(redrawAll, 120);
+  });
+
+  // 首屏可见时再初始化画布尺寸
+  function boot() {
+    redrawAll();
+  }
+  if (document.readyState === "complete") boot();
+  else window.addEventListener("load", boot);
+
+  // 实验台进入视口时自动播放一次
+  var labBox = document.getElementById("labBox");
+  var started = false;
+  var lio = new IntersectionObserver(function (es) {
+    es.forEach(function (en) {
+      if (en.isIntersecting && !started) {
+        started = true;
+        setTimeout(function () { setPlaying(true); }, 600);
+        lio.disconnect();
+      }
+    });
+  }, { threshold: 0.35 });
+  lio.observe(labBox);
+})();
+</script>
+</body>
+</html>
